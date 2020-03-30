@@ -40,11 +40,6 @@
             android:value="AIzaSyAo0g0JctLJuE32QRk29AD1lbs8UHqCH5w" />
 
         <activity android:name="org.tensorflow.dot.LoginActivity">
-                        <intent-filter>
-                            <action android:name="android.intent.action.MAIN" />
-
-                            <category android:name="android.intent.category.LAUNCHER" />
-                        </intent-filter>
         </activity>
 
         <activity android:name="org.tensorflow.dot.RegisterActivity"
@@ -53,6 +48,12 @@
 
         </activity>
         <activity android:name="org.tensorflow.dot.MainPage">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
 
         </activity>
         <activity android:name="org.tensorflow.dot.Profile"
