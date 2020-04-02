@@ -286,21 +286,6 @@ public class ClassifierActivity extends CameraActivity implements OnImageAvailab
                 });
     }
 
-
-    public byte[] screenShot(View v, int width, int height) {
-        Bitmap b = Bitmap.createBitmap(width , height, Bitmap.Config.ARGB_8888);
-        Canvas c = new Canvas(b);
-        v.layout(0, 0, v.getLayoutParams().width, v.getLayoutParams().height);
-        v.draw(c);
-
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        b.compress(Bitmap.CompressFormat.JPEG, 100, baos);
-//    byte[] data = baos.toByteArray();
-
-        return baos.toByteArray();
-    }
-
     @Override
     protected HashMap<byte[] ,HashMap<String, Float>> processImage() {
 
@@ -338,7 +323,7 @@ public class ClassifierActivity extends CameraActivity implements OnImageAvailab
 //                        map.put("latitude",latitude);
 
 //                        if(result.getConfidence()>0.9 && !(latitude ==0.0 && longtitude==0.0 )){
-                        if(result.getConfidence()>0.9){
+                        if(result.getConfidence()>0.5){
                             ByteArrayOutputStream baos = new ByteArrayOutputStream();
                             croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 50, baos);
                             byte[] data = baos.toByteArray();

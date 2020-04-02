@@ -52,8 +52,11 @@ import androidx.annotation.NonNull;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
 
+import com.google.android.gms.tasks.Continuation;
+import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.IgnoreExtraProperties;
@@ -93,12 +96,24 @@ class Value {
 
 }
 
+class Url {
+  public Uri uri;
+
+  public Url(){
+
+  }
+
+  public Url(Uri uri){
+    this.uri = uri;
+  }
+}
+
 
 class Spot {
   public float longitude;
   public float latitude;
   public float confidence;
-  public String imgName;
+  public String imgUrl;
 //  public float x;
 //  public float y;
 //  public float z;
@@ -107,11 +122,11 @@ class Spot {
     // Default constructor required for calls to DataSnapshot.getValue(User.class)
   }
 
-  public Spot(float longitude, float latitude, float confidence, String imgName) {
+  public Spot(float longitude, float latitude, float confidence,String imgUrl) {
     this.longitude = longitude;
     this.latitude = latitude;
     this.confidence = confidence;
-    this.imgName = imgName;
+    this.imgUrl = imgUrl;
 //    this.x = x;
 //    this.y = y;
 //    this.z = z;
@@ -150,10 +165,12 @@ public abstract class CameraActivity extends Activity
 
   public HashMap<byte[],HashMap<String,Float>> map = new HashMap<>();
 
+  public Uri imgUri;
+
   StringBuilder location;
 
 
-  private DatabaseReference valuesRef;// ...
+//  private DatabaseReference valuesRef;// ...
 
 
   private static final String TAG = CameraActivity.class.getSimpleName();
@@ -185,31 +202,11 @@ public abstract class CameraActivity extends Activity
 
     if (hasPermission()) {
       setFragment();
-//      getLastLocation();
+
     } else {
       requestPermission();
     }
   }
-
-//  private void getLastLocation() {
-//    mFusedLocationClient.getLastLocation()
-//            .addOnCompleteListener(this, new OnCompleteListener<Location>() {
-//              @Override
-//              public void onComplete(@NonNull Task<Location> task) {
-//                if (task.isSuccessful() && task.getResult() != null) {
-//                  mLastLocation = task.getResult();
-//                  sb.append(String.format(Locale.ENGLISH, "%s: %f",
-//                          "latitude",
-//                          mLastLocation.getLatitude()))
-//                          .append(String.format(Locale.ENGLISH, "%s: %f",
-//                          "longitude",
-//                          mLastLocation.getLongitude()));
-//                } else {
-//                  Log.w(TAG, "getLastLocation:exception", task.getException());
-//                }
-//              }
-//            });
-//  }
 
   private byte[] lastPreviewFrame;
 
@@ -361,27 +358,40 @@ public abstract class CameraActivity extends Activity
     TimerTask timerTask = new TimerTask() {
       @Override
       public void run() {
-        valuesRef = FirebaseDatabase.getInstance().getReference("spot");
-        StorageReference storageRef = FirebaseStorage.getInstance().getReference();
+
+        System.out.println("11111");
 //        if(map.containsKey("confidence")  && map.containsKey("x")){
 
 
 
 //            Spot spot = new Spot(map.get("longitude"),map.get("latitude"),map.get("confidence"), map.get("x"),map.get("y"),map.get("z"));
 
-          for(byte[] key:map.keySet()){
-            if(map.get(key).containsKey("confidence")){
-              String reportId = valuesRef.push().getKey();
-              StorageReference imgRef = storageRef.child("spot").child(reportId+".jpeg");
-              UploadTask uploadTask =imgRef.putBytes(key);
 
-              Spot spot = new Spot(map.get(key).get("longitude"),map.get(key).get("latitude"),map.get(key).get("confidence"),reportId+".jpeg");
-              valuesRef.child(reportId).setValue(spot);
+          for(byte[] key:map.keySet()){
+
+            if(map.get(key).containsKey("confidence")){
+
+//              DatabaseReference valuesRef = FirebaseDatabase.getInstance().getReference("spot");
+////              StorageReference storageRef = FirebaseStorage.getInstance().getReference();
+//
+//              String reportId = valuesRef.push().getKey();
+////              final StorageReference imgRef = storageRef.child("spot").child(reportId+".jpeg");
+//
+//              Spot spot = new Spot(map.get(key).get("longitude"),map.get(key).get("latitude"),map.get(key).get("confidence"));
+//              valuesRef.child(reportId).setValue(spot);
+//
+//              HashMap<String,String> uriMap = getUrl(reportId,key);
+//              System.out.println(uriMap.get("uri"));
+
+                getUrl(key);
+
+
+
             }
             break;
           }
 
-        map.clear();
+//        map.clear();
 
         }
 
@@ -420,6 +430,37 @@ public abstract class CameraActivity extends Activity
 //    timer.schedule(timerTask,
 //            1000,//延迟1秒执行
 //            5000);//周期时间
+  }
+
+  private HashMap<String,String> getUrl(final byte[] key){
+    StorageReference storageRef = FirebaseStorage.getInstance().getReference();
+
+    final HashMap<String, String> uriMap= new HashMap<>();
+
+
+    final DatabaseReference valuesRef = FirebaseDatabase.getInstance().getReference("spot");
+    final String reportId = valuesRef.push().getKey();
+    final StorageReference imgRef = storageRef.child("spot").child(reportId+".jpeg");
+    UploadTask uploadTask = imgRef.putBytes(key);
+    uploadTask.addOnSuccessListener(new OnSuccessListener<UploadTask.TaskSnapshot>() {
+      @Override
+      public void onSuccess(UploadTask.TaskSnapshot taskSnapshot) {
+        imgRef.getDownloadUrl().addOnSuccessListener(new OnSuccessListener<Uri>() {
+          @Override
+          public void onSuccess(Uri uri) {
+            Log.d(TAG, "onSuccess: uri= "+ uri.toString());
+            uriMap.put("uri",uri.toString());
+            Spot spot = new Spot(map.get(key).get("longitude"),map.get(key).get("latitude"),map.get(key).get("confidence"),uri.toString());
+            valuesRef.child(reportId).setValue(spot);
+            System.out.println("neibu"+uriMap.get("uri"));
+
+          }
+        });
+      }
+    });
+    System.out.println("waibu"+uriMap.get("uri"));
+
+    return uriMap;
   }
 
   @Override
