@@ -35,12 +35,12 @@
         android:icon="@drawable/ic_launcher"
         android:theme="@style/Theme.AppCompat.Light">
 
-        <meta-data
-            android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyDggUR0hZwSjiLPRDNItWie-x5lNV1yPyE" />
-
         <activity android:name="org.tensorflow.dot.LoginActivity">
 
+<!--            <intent-filter>-->
+<!--                <action android:name="android.intent.action.MAIN" />-->
+<!--                <category android:name="android.intent.category.LAUNCHER" />-->
+<!--            </intent-filter>-->
         </activity>
 
         <activity android:name="org.tensorflow.dot.RegisterActivity"
@@ -67,9 +67,10 @@
 
         </activity>
 
-        <activity android:name="org.tensorflow.dot.ClassifierActivity"
+        <activity android:name="org.tensorflow.dot.DetectorActivity"
                   android:screenOrientation="portrait"
-                  android:label="@string/activity_name_classification">
+
+                  android:parentActivityName="org.tensorflow.dot.MainPage">
 <!--            <intent-filter>-->
 <!--                <action android:name="android.intent.action.MAIN" />-->
 
