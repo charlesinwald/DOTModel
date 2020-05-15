@@ -20,38 +20,118 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.Fragment;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.hardware.Camera;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.location.Location;
 import android.media.Image;
 import android.media.Image.Plane;
 import android.media.ImageReader;
 import android.media.ImageReader.OnImageAvailableListener;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Trace;
+import android.util.Log;
 import android.util.Size;
 import android.view.KeyEvent;
+import android.view.Surface;
+import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
+import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
+
+import com.google.android.gms.tasks.Continuation;
+import com.google.android.gms.tasks.OnCompleteListener;
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.IgnoreExtraProperties;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.StorageReference;
+import com.google.firebase.storage.UploadTask;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.io.File;
+import java.io.BufferedWriter;
+
 import org.tensorflow.dot.env.ImageUtils;
 import org.tensorflow.dot.env.Logger;
-import org.tensorflow.dot.R; // Explicit import needed for internal Google builds.
+
+@IgnoreExtraProperties
+class Value {
+  public float confidence;
+  public float x;
+  public float y;
+  public float z;
+
+  public Value() {
+    // Default constructor required for calls to DataSnapshot.getValue(User.class)
+  }
+
+  public Value(float confidence, float x, float y, float z) {
+    this.confidence = confidence;
+    this.x = x;
+    this.y = y;
+    this.z = z;
+  }
+
+}
+
+
+
+class Spot {
+  public float longitude;
+  public float latitude;
+  public float confidence;
+  public String type;
+  public String imgUrl;
+
+  public Spot() {
+    // Default constructor required for calls to DataSnapshot.getValue(User.class)
+  }
+
+  public Spot(float longitude, float latitude, float confidence,String imgUrl,String type){
+    this.longitude = longitude;
+    this.latitude = latitude;
+    this.confidence = confidence;
+    this.imgUrl = imgUrl;
+    this.type = type;
+  }
+
+}
+
 
 public abstract class CameraActivity extends Activity
-    implements OnImageAvailableListener, Camera.PreviewCallback {
+        implements OnImageAvailableListener, Camera.PreviewCallback {
   private static final Logger LOGGER = new Logger();
 
   private static final int PERMISSIONS_REQUEST = 1;
 
   private static final String PERMISSION_CAMERA = Manifest.permission.CAMERA;
   private static final String PERMISSION_STORAGE = Manifest.permission.WRITE_EXTERNAL_STORAGE;
+  private static final String PERMISSION_LOCATION1 = Manifest.permission.ACCESS_COARSE_LOCATION;
+  private static final String PERMISSION_LOCATION2 = Manifest.permission.ACCESS_FINE_LOCATION;
 
   private boolean debug = false;
 
@@ -69,6 +149,31 @@ public abstract class CameraActivity extends Activity
   private Runnable postInferenceCallback;
   private Runnable imageConverter;
 
+  public HashMap<byte[],HashMap<String,String>> map = new HashMap<>();
+
+
+//  private DatabaseReference valuesRef;// ...
+
+
+  private static final String TAG = CameraActivity.class.getSimpleName();
+
+
+  /**
+   * Provides the entry point to the Fused Location Provider API.
+   */
+  private FusedLocationProviderClient mFusedLocationClient;
+
+  /**
+   * Represents a geographical location.
+   */
+  protected Location mLastLocation;
+
+  private Button button1;
+
+
+
+
+
   @Override
   protected void onCreate(final Bundle savedInstanceState) {
     LOGGER.d("onCreate " + this);
@@ -76,13 +181,58 @@ public abstract class CameraActivity extends Activity
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
     setContentView(R.layout.activity_camera);
+    button1 = (Button) findViewById(R.id.button);
+    button1.setOnClickListener(new View.OnClickListener() {
+      @Override
+      public void onClick(View v) {
+        Intent intent = new Intent();
+        intent.setClass(CameraActivity.this, MainPage.class);
+        startActivity(intent);
+        appendLog(DetectorActivity.str_log.toString());
+      }
+    });
+    mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
 
     if (hasPermission()) {
       setFragment();
+
     } else {
       requestPermission();
     }
   }
+
+
+
+  public void appendLog(String text)
+  {
+    File logFile = new File("sdcard/record.log");
+    if (!logFile.exists())
+    {
+      try
+      {
+        logFile.createNewFile();
+      }
+      catch (IOException e)
+      {
+        // TODO Auto-generated catch block
+        e.printStackTrace();
+      }
+    }
+    try
+    {
+      //BufferedWriter for performance, true to set append to file flag
+      BufferedWriter buf = new BufferedWriter(new java.io.FileWriter(logFile, true));
+      buf.append(text);
+      buf.newLine();
+      buf.close();
+    }
+    catch (IOException e)
+    {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
+    }
+  }
+
 
   private byte[] lastPreviewFrame;
 
@@ -129,22 +279,24 @@ public abstract class CameraActivity extends Activity
     yRowStride = previewWidth;
 
     imageConverter =
-        new Runnable() {
-          @Override
-          public void run() {
-            ImageUtils.convertYUV420SPToARGB8888(bytes, previewWidth, previewHeight, rgbBytes);
-          }
-        };
+            new Runnable() {
+              @Override
+              public void run() {
+                ImageUtils.convertYUV420SPToARGB8888(bytes, previewWidth, previewHeight, rgbBytes);
+
+
+              }
+            };
 
     postInferenceCallback =
-        new Runnable() {
-          @Override
-          public void run() {
-            camera.addCallbackBuffer(bytes);
-            isProcessingFrame = false;
-          }
-        };
-    processImage();
+            new Runnable() {
+              @Override
+              public void run() {
+                camera.addCallbackBuffer(bytes);
+                isProcessingFrame = false;
+              }
+            };
+    map = processImage();
   }
 
   /**
@@ -179,32 +331,32 @@ public abstract class CameraActivity extends Activity
       final int uvPixelStride = planes[1].getPixelStride();
 
       imageConverter =
-          new Runnable() {
-            @Override
-            public void run() {
-              ImageUtils.convertYUV420ToARGB8888(
-                  yuvBytes[0],
-                  yuvBytes[1],
-                  yuvBytes[2],
-                  previewWidth,
-                  previewHeight,
-                  yRowStride,
-                  uvRowStride,
-                  uvPixelStride,
-                  rgbBytes);
-            }
-          };
+              new Runnable() {
+                @Override
+                public void run() {
+                  ImageUtils.convertYUV420ToARGB8888(
+                          yuvBytes[0],
+                          yuvBytes[1],
+                          yuvBytes[2],
+                          previewWidth,
+                          previewHeight,
+                          yRowStride,
+                          uvRowStride,
+                          uvPixelStride,
+                          rgbBytes);
+                }
+              };
 
       postInferenceCallback =
-          new Runnable() {
-            @Override
-            public void run() {
-              image.close();
-              isProcessingFrame = false;
-            }
-          };
+              new Runnable() {
+                @Override
+                public void run() {
+                  image.close();
+                  isProcessingFrame = false;
+                }
+              };
 
-      processImage();
+      map = processImage();
     } catch (final Exception e) {
       LOGGER.e(e, "Exception!");
       Trace.endSection();
@@ -227,6 +379,32 @@ public abstract class CameraActivity extends Activity
     handlerThread = new HandlerThread("inference");
     handlerThread.start();
     handler = new Handler(handlerThread.getLooper());
+
+
+//    Timer timer = new Timer();
+//
+//    TimerTask timerTask = new TimerTask() {
+//      @Override
+//      public void run() {
+//          for(byte[] key:map.keySet()){
+//
+//            if(map.get(key).containsKey("confidence")){
+//              getUrl(key);
+//
+//              Log.d(TAG, "上传了！！！！！！");
+//            }
+//
+//            break;
+//          }
+//        }
+//
+//
+//
+//    };
+//
+//    timer.schedule(timerTask,
+//            1000,//延迟1秒执行
+//            1000);//周期时间
   }
 
   @Override
@@ -270,11 +448,14 @@ public abstract class CameraActivity extends Activity
 
   @Override
   public void onRequestPermissionsResult(
-      final int requestCode, final String[] permissions, final int[] grantResults) {
+          final int requestCode, final String[] permissions, final int[] grantResults) {
     if (requestCode == PERMISSIONS_REQUEST) {
       if (grantResults.length > 0
-          && grantResults[0] == PackageManager.PERMISSION_GRANTED
-          && grantResults[1] == PackageManager.PERMISSION_GRANTED) {
+              && grantResults[0] == PackageManager.PERMISSION_GRANTED
+              && grantResults[1] == PackageManager.PERMISSION_GRANTED
+              && grantResults[2] == PackageManager.PERMISSION_GRANTED
+              && grantResults[3] == PackageManager.PERMISSION_GRANTED
+      ) {
         setFragment();
       } else {
         requestPermission();
@@ -285,7 +466,9 @@ public abstract class CameraActivity extends Activity
   private boolean hasPermission() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
       return checkSelfPermission(PERMISSION_CAMERA) == PackageManager.PERMISSION_GRANTED &&
-          checkSelfPermission(PERMISSION_STORAGE) == PackageManager.PERMISSION_GRANTED;
+              checkSelfPermission(PERMISSION_STORAGE) == PackageManager.PERMISSION_GRANTED &&
+              checkSelfPermission(PERMISSION_LOCATION1)== PackageManager.PERMISSION_GRANTED &&
+              checkSelfPermission(PERMISSION_LOCATION2)== PackageManager.PERMISSION_GRANTED;
     } else {
       return true;
     }
@@ -294,17 +477,21 @@ public abstract class CameraActivity extends Activity
   private void requestPermission() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
       if (shouldShowRequestPermissionRationale(PERMISSION_CAMERA) ||
-          shouldShowRequestPermissionRationale(PERMISSION_STORAGE)) {
+              shouldShowRequestPermissionRationale(PERMISSION_STORAGE) ||
+              shouldShowRequestPermissionRationale(PERMISSION_LOCATION1) ||
+              shouldShowRequestPermissionRationale(PERMISSION_LOCATION2)
+      ) {
         Toast.makeText(CameraActivity.this,
-            "Camera AND storage permission are required for this demo", Toast.LENGTH_LONG).show();
+                "Camera AND storage permission are required for this demo", Toast.LENGTH_LONG).show();
       }
-      requestPermissions(new String[] {PERMISSION_CAMERA, PERMISSION_STORAGE}, PERMISSIONS_REQUEST);
+      requestPermissions(new String[] {PERMISSION_CAMERA, PERMISSION_STORAGE, PERMISSION_LOCATION1, PERMISSION_LOCATION2}, PERMISSIONS_REQUEST);
     }
   }
 
+
   // Returns true if the device supports the required hardware level, or better.
   private boolean isHardwareLevelSupported(
-      CameraCharacteristics characteristics, int requiredLevel) {
+          CameraCharacteristics characteristics, int requiredLevel) {
     int deviceLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
     if (deviceLevel == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY) {
       return requiredLevel == deviceLevel;
@@ -326,14 +513,14 @@ public abstract class CameraActivity extends Activity
         }
 
         final StreamConfigurationMap map =
-            characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
 
         if (map == null) {
           continue;
         }
 
         useCamera2API = isHardwareLevelSupported(characteristics,
-            CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL);
+                CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL);
         LOGGER.i("Camera API lv2?: %s", useCamera2API);
         return cameraId;
       }
@@ -346,34 +533,38 @@ public abstract class CameraActivity extends Activity
 
   protected void setFragment() {
     String cameraId = chooseCamera();
+    if (cameraId == null) {
+      Toast.makeText(this, "No Camera Detected", Toast.LENGTH_SHORT).show();
+      finish();
+    }
 
     Fragment fragment;
     if (useCamera2API) {
       CameraConnectionFragment camera2Fragment =
-          CameraConnectionFragment.newInstance(
-              new CameraConnectionFragment.ConnectionCallback() {
-                @Override
-                public void onPreviewSizeChosen(final Size size, final int rotation) {
-                  previewHeight = size.getHeight();
-                  previewWidth = size.getWidth();
-                  CameraActivity.this.onPreviewSizeChosen(size, rotation);
-                }
-              },
-              this,
-              getLayoutId(),
-              getDesiredPreviewFrameSize());
+              CameraConnectionFragment.newInstance(
+                      new CameraConnectionFragment.ConnectionCallback() {
+                        @Override
+                        public void onPreviewSizeChosen(final Size size, final int rotation) {
+                          previewHeight = size.getHeight();
+                          previewWidth = size.getWidth();
+                          CameraActivity.this.onPreviewSizeChosen(size, rotation);
+                        }
+                      },
+                      this,
+                      getLayoutId(),
+                      getDesiredPreviewFrameSize());
 
       camera2Fragment.setCamera(cameraId);
       fragment = camera2Fragment;
     } else {
       fragment =
-          new LegacyCameraConnectionFragment(this, getLayoutId(), getDesiredPreviewFrameSize());
+              new LegacyCameraConnectionFragment(this, getLayoutId(), getDesiredPreviewFrameSize());
     }
 
     getFragmentManager()
-        .beginTransaction()
-        .replace(R.id.container, fragment)
-        .commit();
+            .beginTransaction()
+            .replace(R.id.container, fragment)
+            .commit();
   }
 
   protected void fillBytes(final Plane[] planes, final byte[][] yuvBytes) {
@@ -411,7 +602,8 @@ public abstract class CameraActivity extends Activity
 
   @Override
   public boolean onKeyDown(final int keyCode, final KeyEvent event) {
-    if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+    if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP
+            || keyCode == KeyEvent.KEYCODE_BUTTON_L1 || keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
       debug = !debug;
       requestRender();
       onSetDebug(debug);
@@ -426,7 +618,20 @@ public abstract class CameraActivity extends Activity
     }
   }
 
-  protected abstract void processImage();
+  protected int getScreenOrientation() {
+    switch (getWindowManager().getDefaultDisplay().getRotation()) {
+      case Surface.ROTATION_270:
+        return 270;
+      case Surface.ROTATION_180:
+        return 180;
+      case Surface.ROTATION_90:
+        return 90;
+      default:
+        return 0;
+    }
+  }
+
+  protected abstract HashMap processImage();
 
   protected abstract void onPreviewSizeChosen(final Size size, final int rotation);
   protected abstract int getLayoutId();

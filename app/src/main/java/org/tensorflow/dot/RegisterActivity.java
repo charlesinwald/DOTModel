@@ -1,6 +1,8 @@
 package org.tensorflow.dot;
 
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
@@ -15,15 +17,20 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.gms.tasks.OnCompleteListener;
+import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.AuthResult;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.auth.UserProfileChangeRequest;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.storage.FirebaseStorage;
 import com.google.firebase.storage.StorageReference;
 import com.google.firebase.storage.UploadTask;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 
 public class RegisterActivity extends AppCompatActivity {
 
@@ -31,7 +38,8 @@ public class RegisterActivity extends AppCompatActivity {
     ImageView profile;
     EditText emailField, usernameField, passwordField,confirmationField;
     Uri imageUri;
-    FirebaseAuth mAuth;
+    Bitmap bitmap;
+    int TAKE_IMAGE_CODE = 10001;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -64,14 +72,22 @@ public class RegisterActivity extends AppCompatActivity {
         Intent intent = new Intent(Intent.ACTION_PICK);
         intent.setType(MediaStore.Images.Media.CONTENT_TYPE);
         startActivityForResult(intent, 10);
+
     }
+
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == 10 && resultCode == RESULT_OK) {
-            profile.setImageURI(data.getData());
-            imageUri = data.getData();
+        if (requestCode == 10 && resultCode == RESULT_OK && data!=null) {
+            try {
+                imageUri = data.getData();
+                bitmap = BitmapFactory.decodeStream(getContentResolver().openInputStream(imageUri));
+                profile.setImageBitmap(bitmap);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
         }
     }
 
@@ -87,33 +103,46 @@ public class RegisterActivity extends AppCompatActivity {
             Toast.makeText(RegisterActivity.this, "The password cannot be empty.", Toast.LENGTH_SHORT).show();
         }else{
             FirebaseAuth.getInstance().createUserWithEmailAndPassword(email,password).addOnCompleteListener(new OnCompleteListener<AuthResult>() {
+
                 @Override
                 public void onComplete(@NonNull Task<AuthResult> task) {
                     if (task.isSuccessful()){
-                        final String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
-                        final StorageReference storageReference = FirebaseStorage.getInstance().getReference().child("users").child(uid);
-                        storageReference.putFile(imageUri).addOnCompleteListener(new OnCompleteListener<UploadTask.TaskSnapshot>() {
-                            @Override
-                            public void onComplete(@NonNull Task<UploadTask.TaskSnapshot> task) {
-                                if(task.isSuccessful()){
-                                    storageReference.getDownloadUrl().addOnCompleteListener(new OnCompleteListener<Uri>() {
-                                        @Override
-                                        public void onComplete(@NonNull Task<Uri> task) {
-                                            String imageurl = task.toString();
-                                            UserModel userModel = new UserModel();
-                                            userModel.uid = uid;
-                                            userModel.email = email;
-                                            userModel.name = username;
-                                            userModel.imageurl = imageurl;
-                                            FirebaseDatabase.getInstance().getReference().child("users").child(uid).setValue(userModel);
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 100,baos);
+                        String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                        final StorageReference reference = FirebaseStorage.getInstance().getReference()
+                                .child("users")
+                                .child(uid+".jpeg");
+                        reference.putBytes(baos.toByteArray())
+                                .addOnCompleteListener(new OnCompleteListener<UploadTask.TaskSnapshot>() {
+                                    @Override
+                                    public void onComplete(@NonNull Task<UploadTask.TaskSnapshot> task) {
+                                        if(task.isSuccessful()){
+                                            reference.getDownloadUrl().addOnSuccessListener(new OnSuccessListener<Uri>() {
+                                                @Override
+                                                public void onSuccess(Uri uri) {
+                                                    FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+                                                    UserProfileChangeRequest profileUpdates1 = new UserProfileChangeRequest.Builder()
+                                                            .setDisplayName(username)
+                                                            .build();
+                                                    UserProfileChangeRequest profileUpdates2 = new UserProfileChangeRequest.Builder()
+                                                            .setPhotoUri(uri)
+                                                            .build();
+                                                    user.updateProfile(profileUpdates1);
+                                                    user.updateProfile(profileUpdates2);
+                                                }
+                                            });
                                         }
-                                    });
-                                }
-                            }
-                        });
+                                    }
+                                });
+//                        final String uid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+                        Toast.makeText(RegisterActivity.this,"Register Successfully",Toast.LENGTH_SHORT).show();
                         Intent intent = new Intent();
-                        intent.setClass(RegisterActivity.this, MainPage.class);
+                        intent.setClass(RegisterActivity.this, LoginActivity.class);
                         startActivity(intent);
+
+
+
                     }else {
                         Toast.makeText(RegisterActivity.this,"Connect Error",Toast.LENGTH_SHORT).show();
                     }

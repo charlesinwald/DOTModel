@@ -14,8 +14,10 @@ import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.AuthResult;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 
 public class LoginActivity extends AppCompatActivity {
+
 
     private EditText emailField,passwordField;
     FirebaseAuth mAuth;
@@ -44,7 +46,7 @@ public class LoginActivity extends AppCompatActivity {
         String email = emailField.getText().toString();
         String password = passwordField.getText().toString();
         if(email.isEmpty()){
-            Toast.makeText(LoginActivity.this, "Please enter your username.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(LoginActivity.this, "Please enter your email.", Toast.LENGTH_SHORT).show();
         }
         else if(password.isEmpty()){
             Toast.makeText(LoginActivity.this, "Please enter your password.", Toast.LENGTH_SHORT).show();
@@ -54,13 +56,17 @@ public class LoginActivity extends AppCompatActivity {
                         @Override
                         public void onComplete(@NonNull Task<AuthResult> task) {
                             if (task.isSuccessful()) {
-                                startActivity(new Intent(LoginActivity.this,MainPage.class));
+                                FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+                                if(user!=null){
+                                    Toast.makeText(LoginActivity.this, "Welcome! "+user.getDisplayName(), Toast.LENGTH_SHORT).show();
+                                    startActivity(new Intent(LoginActivity.this,MainPage.class));
+                                }
+
                             } else {
-                                Toast.makeText(LoginActivity.this,"login fail",Toast.LENGTH_SHORT).show();
+                                Toast.makeText(LoginActivity.this,"Email and password don't match",Toast.LENGTH_SHORT).show();
                             }
                         }
                     });
-            Toast.makeText(LoginActivity.this, "Login succeed.", Toast.LENGTH_SHORT).show();
         }
 
 
